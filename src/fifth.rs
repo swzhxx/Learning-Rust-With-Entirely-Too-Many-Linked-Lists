@@ -1,9 +1,10 @@
-use std::mem;
+use std::{mem, ptr};
 
-pub struct List<'a, T> {
+pub struct List<T> {
     head: Link<T>,
-    tail: Option<&'a mut Node<T>>, // NEW!
+    tail: *mut Node<T>,
 }
+
 type Link<T> = Option<Box<Node<T>>>;
 
 struct Node<T> {
@@ -11,33 +12,65 @@ struct Node<T> {
     next: Link<T>,
 }
 
-impl<'a, T> List<'a, T> {
+impl<T> List<T> {
     pub fn new() -> Self {
         List {
             head: None,
-            tail: None,
+            tail: ptr::null_mut(),
         }
     }
 
-    pub fn push(&'a mut self, elem: T) {
-        let new_tail = Box::new(Node {
+    pub fn push(&mut self, elem: T) {
+        let mut new_tail = Box::new(Node {
             elem: elem,
             next: None,
         });
-        // Put the box in the right place, and then grab a reference to its Node
-        let new_tail = match self.tail.take() {
-            Some(old_tail) => {
-                // If the old tail existed, update it to point to the new tail
-                old_tail.next = Some(new_tail);
-                old_tail.next.as_deref_mut()
+        let raw_tail: *mut _ = &mut *new_tail;
+        if !self.tail.is_null() {
+            unsafe {
+                (*self.tail).next = Some(new_tail);
             }
-            None => {
-                // Otherwise, update the head to point to it
-                self.head = Some(new_tail);
-                self.head.as_deref_mut()
-            }
-        };
+        } else {
+            self.head = Some(new_tail)
+        }
+        self.tail = raw_tail;
+    }
 
-        self.tail = new_tail;
+    pub fn pop(&mut self) -> Option<T> {
+        self.head.take().map(|head| {
+            let head = *head;
+            self.head = head.next;
+
+            if self.head.is_none() {
+                self.tail = ptr::null_mut();
+            }
+            head.elem
+        })
+    }
+}
+
+mod test {
+    use super::List;
+    #[test]
+    fn basics() {
+        let mut list = List::new();
+        assert_eq!(list.pop(), None);
+        list.push(1);
+        list.push(2);
+        list.push(3);
+
+        assert_eq!(list.pop(), Some(1));
+        assert_eq!(list.pop(), Some(2));
+
+        list.push(4);
+        list.push(5);
+
+        // Check normal removal
+        assert_eq!(list.pop(), Some(3));
+        assert_eq!(list.pop(), Some(4));
+
+        // Check exhaustion
+        assert_eq!(list.pop(), Some(5));
+        assert_eq!(list.pop(), None);
     }
 }
